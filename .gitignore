@@ -32,3 +32,9 @@ secrets.json
 .agent
 AGENT.md
 implementation_plan.md
+
+# Independent Service Repositories
+backend-api/
+core-service/
+retry-service/
+webhook-service/
