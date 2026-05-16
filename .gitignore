@@ -28,3 +28,7 @@ ehthumbs.db
 # Local secrets / environment-specific config
 **/appsettings.Development.json
 secrets.json
+
+.agent
+AGENT.md
+implementation_plan.md
