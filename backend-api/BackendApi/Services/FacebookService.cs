@@ -115,5 +115,40 @@ namespace Page_API.Services
             }
             return await response.Content.ReadFromJsonAsync<object>();
         }
+
+        public async Task<object?> ReplyToCommentAsync(
+            string commentId,
+            string message,
+            CancellationToken cancellationToken)
+        {
+            var token = System.Net.WebUtility.UrlEncode(_options.PageAccessToken);
+            var response = await _httpClient.PostAsJsonAsync(
+                $"{commentId}/comments?access_token={token}",
+                new { message },
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await ThrowFacebookApiException(response);
+            }
+
+            return await response.Content.ReadFromJsonAsync<object>(cancellationToken);
+        }
+
+        public async Task<object?> HideCommentAsync(string commentId, CancellationToken cancellationToken)
+        {
+            var token = System.Net.WebUtility.UrlEncode(_options.PageAccessToken);
+            var response = await _httpClient.PostAsJsonAsync(
+                $"{commentId}?access_token={token}",
+                new { is_hidden = true },
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await ThrowFacebookApiException(response);
+            }
+
+            return await response.Content.ReadFromJsonAsync<object>(cancellationToken);
+        }
     }
 }

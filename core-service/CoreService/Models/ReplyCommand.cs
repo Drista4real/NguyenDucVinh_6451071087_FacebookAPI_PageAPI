@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Page_API.Models;
+namespace CoreService.Models;
 
 public class ReplyCommand
 {
@@ -23,13 +23,13 @@ public class ReplyCommand
     public string ReplyText { get; set; } = string.Empty;
 
     [JsonPropertyName("intent")]
-    public string? Intent { get; set; }
+    public string Intent { get; set; } = "unknown";
 
     [JsonPropertyName("sentiment")]
-    public string? Sentiment { get; set; }
+    public string Sentiment { get; set; } = "neutral";
 
     [JsonPropertyName("created_at")]
-    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public class ReplyTarget
@@ -39,28 +39,4 @@ public class ReplyTarget
 
     [JsonPropertyName("comment_id")]
     public string CommentId { get; set; } = string.Empty;
-}
-
-public class RetryMessage
-{
-    [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; set; } = 1;
-
-    [JsonPropertyName("command_id")]
-    public string CommandId { get; set; } = string.Empty;
-
-    [JsonPropertyName("event_id")]
-    public string EventId { get; set; } = string.Empty;
-
-    [JsonPropertyName("retry_count")]
-    public int RetryCount { get; set; }
-
-    [JsonPropertyName("last_error")]
-    public string? LastError { get; set; }
-
-    [JsonPropertyName("next_retry_at")]
-    public DateTimeOffset? NextRetryAt { get; set; }
-
-    [JsonPropertyName("payload")]
-    public ReplyCommand? Payload { get; set; }
 }

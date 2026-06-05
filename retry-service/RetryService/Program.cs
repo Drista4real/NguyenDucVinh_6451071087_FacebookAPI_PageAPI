@@ -1,7 +1,17 @@
 using RetryService;
+using RetryService.Models;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.Configure<KafkaRetryOptions>(builder.Configuration.GetSection("Kafka"));
 builder.Services.AddHostedService<Worker>();
 
-var host = builder.Build();
-host.Run();
+var app = builder.Build();
+
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "ok",
+    service = "retry-service",
+    utc = DateTimeOffset.UtcNow
+}));
+
+app.Run();

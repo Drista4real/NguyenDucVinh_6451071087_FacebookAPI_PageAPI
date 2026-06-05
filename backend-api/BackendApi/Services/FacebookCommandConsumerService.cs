@@ -5,20 +5,20 @@ using Page_API.Models;
 
 namespace Page_API.Services
 {
-    public class FacebookEventConsumerService : BackgroundService
+    public class FacebookCommandConsumerService : BackgroundService
     {
         private readonly KafkaConsumerOptions _options;
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly ILogger<FacebookEventConsumerService> _logger;
+        private readonly ILogger<FacebookCommandConsumerService> _logger;
         private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
         };
 
-        public FacebookEventConsumerService(
+        public FacebookCommandConsumerService(
             IOptions<KafkaConsumerOptions> options,
             IServiceScopeFactory serviceScopeFactory,
-            ILogger<FacebookEventConsumerService> logger)
+            ILogger<FacebookCommandConsumerService> logger)
         {
             _options = options.Value;
             _serviceScopeFactory = serviceScopeFactory;
@@ -28,7 +28,6 @@ namespace Page_API.Services
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
             if (string.IsNullOrWhiteSpace(_options.BootstrapServers)
-                || string.IsNullOrWhiteSpace(_options.Topic)
                 || string.IsNullOrWhiteSpace(_options.GroupId))
             {
                 _logger.LogWarning("Kafka consumer is disabled because KafkaConsumer configuration is incomplete.");
@@ -49,11 +48,11 @@ namespace Page_API.Services
             };
 
             using var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
-            consumer.Subscribe(_options.Topic);
+            consumer.Subscribe(_options.EffectiveTopics);
 
             _logger.LogInformation(
-                "Kafka consumer started. Topic={Topic} GroupId={GroupId} BootstrapServers={BootstrapServers}",
-                _options.Topic,
+                "Kafka consumer started. Topics={Topics} GroupId={GroupId} BootstrapServers={BootstrapServers}",
+                string.Join(",", _options.EffectiveTopics),
                 _options.GroupId,
                 _options.BootstrapServers);
 
@@ -77,10 +76,14 @@ namespace Page_API.Services
                         continue;
                     }
 
-                    if (!TryDeserialize(consumeResult.Message.Value, out var normalizedEvent))
+                    if (!TryBuildCommand(
+                            consumeResult.Topic,
+                            consumeResult.Message.Value,
+                            out var command,
+                            out var retryCount))
                     {
                         _logger.LogWarning(
-                            "Skipping invalid event at {TopicPartitionOffset}.",
+                            "Skipping invalid command at {TopicPartitionOffset}.",
                             consumeResult.TopicPartitionOffset);
                         consumer.Commit(consumeResult);
                         continue;
@@ -89,8 +92,8 @@ namespace Page_API.Services
                     try
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
-                        var handler = scope.ServiceProvider.GetRequiredService<IFacebookEventHandler>();
-                        handler.HandleAsync(normalizedEvent!, stoppingToken).GetAwaiter().GetResult();
+                        var handler = scope.ServiceProvider.GetRequiredService<IFacebookCommandHandler>();
+                        handler.HandleAsync(command!, retryCount, stoppingToken).GetAwaiter().GetResult();
 
                         consumer.Commit(consumeResult);
                     }
@@ -98,9 +101,14 @@ namespace Page_API.Services
                     {
                         _logger.LogError(
                             ex,
-                            "Failed to process event at {TopicPartitionOffset}. EventId={EventId}",
+                            "Failed to process command at {TopicPartitionOffset}. CommandId={CommandId}",
                             consumeResult.TopicPartitionOffset,
-                            normalizedEvent?.EventId);
+                            command?.CommandId);
+
+                        if (IsPermanentCommandFailure(ex))
+                        {
+                            consumer.Commit(consumeResult);
+                        }
                     }
                 }
             }
@@ -114,13 +122,37 @@ namespace Page_API.Services
             }
         }
 
-        private bool TryDeserialize(string payload, out NormalizedFacebookEvent? normalizedEvent)
+        private bool TryBuildCommand(
+            string topic,
+            string payload,
+            out ReplyCommand? command,
+            out int retryCount)
         {
-            normalizedEvent = null;
+            command = null;
+            retryCount = 0;
+
             try
             {
-                normalizedEvent = JsonSerializer.Deserialize<NormalizedFacebookEvent>(payload, _jsonOptions);
-                if (normalizedEvent is null || string.IsNullOrWhiteSpace(normalizedEvent.EventId))
+                if (string.Equals(topic, _options.SendRetryTopic, StringComparison.Ordinal))
+                {
+                    var retryMessage = JsonSerializer.Deserialize<RetryMessage>(payload, _jsonOptions);
+                    command = retryMessage?.Payload;
+                    retryCount = retryMessage?.RetryCount ?? 0;
+                }
+                else
+                {
+                    command = JsonSerializer.Deserialize<ReplyCommand>(payload, _jsonOptions);
+                }
+
+                if (command is null
+                    || string.IsNullOrWhiteSpace(command.CommandId)
+                    || string.IsNullOrWhiteSpace(command.Action))
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(command.Target.CommentId)
+                    && !string.Equals(command.Action, "manual_review", StringComparison.OrdinalIgnoreCase))
                 {
                     return false;
                 }
@@ -129,7 +161,7 @@ namespace Page_API.Services
             }
             catch (JsonException ex)
             {
-                _logger.LogWarning(ex, "Unable to deserialize normalized facebook event payload.");
+                _logger.LogWarning(ex, "Unable to deserialize command payload.");
                 return false;
             }
         }
@@ -142,6 +174,24 @@ namespace Page_API.Services
             }
 
             return AutoOffsetReset.Earliest;
+        }
+
+        private static bool IsPermanentCommandFailure(Exception exception)
+        {
+            if (exception is InvalidOperationException)
+            {
+                return true;
+            }
+
+            if (exception is FacebookApiException facebookApiException)
+            {
+                var statusCode = (int)facebookApiException.UpstreamStatusCode;
+                return statusCode >= StatusCodes.Status400BadRequest
+                    && statusCode != StatusCodes.Status429TooManyRequests
+                    && statusCode < StatusCodes.Status500InternalServerError;
+            }
+
+            return false;
         }
     }
 }

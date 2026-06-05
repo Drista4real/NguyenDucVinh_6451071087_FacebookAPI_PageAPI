@@ -7,6 +7,7 @@ builder.Services.AddControllers();
 // Configure Facebook Options
 builder.Services.Configure<Page_API.Models.FacebookOptions>(builder.Configuration.GetSection("Facebook"));
 builder.Services.Configure<Page_API.Models.KafkaConsumerOptions>(builder.Configuration.GetSection("KafkaConsumer"));
+builder.Services.Configure<Page_API.Models.ProcessedCommandOptions>(builder.Configuration.GetSection("ProcessedCommands"));
 
 // Register Facebook Service and HttpClient
 builder.Services.AddHttpClient<Page_API.Services.IFacebookService, Page_API.Services.FacebookService>(client =>
@@ -18,8 +19,10 @@ builder.Services.AddHttpClient<Page_API.Services.IFacebookService, Page_API.Serv
 
 // Configure lowercase URLs
 builder.Services.AddRouting(options => options.LowercaseUrls = true);
-builder.Services.AddScoped<Page_API.Services.IFacebookEventHandler, Page_API.Services.FacebookEventHandler>();
-builder.Services.AddHostedService<Page_API.Services.FacebookEventConsumerService>();
+builder.Services.AddSingleton<Page_API.Services.IKafkaFailurePublisher, Page_API.Services.KafkaFailurePublisher>();
+builder.Services.AddSingleton<Page_API.Services.IProcessedCommandStore, Page_API.Services.PostgresProcessedCommandStore>();
+builder.Services.AddScoped<Page_API.Services.IFacebookCommandHandler, Page_API.Services.FacebookCommandHandler>();
+builder.Services.AddHostedService<Page_API.Services.FacebookCommandConsumerService>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
